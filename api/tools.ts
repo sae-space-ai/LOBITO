@@ -4,8 +4,8 @@
 // ============================================================
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { authenticate, authorize } from '../../src/server/lib/auth';
-import { isDatabaseAvailable, query } from '../../src/server/lib/database';
+import { authenticate, authorize } from '../src/server/lib/auth';
+import { isDatabaseAvailable, query } from '../src/server/lib/database';
 
 const LOCAL_TOOLS = [
   { id: 'text_analyzer', name: 'Analizador de Texto', status: 'available', requiresApproval: false },
