@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AgentState, Order } from '../types';
-import { agentEngine } from '../core/engine';
+import { Order } from '../types';
+import { agentEngine, AgentEngineState } from '../core/engine';
+import { QwenConnectionStatus } from '../core/qwenAdapter';
 
 export function useAgent() {
-  const [state, setState] = useState<AgentState>(agentEngine.getState());
+  const [state, setState] = useState<AgentEngineState>(agentEngine.getState());
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentResult, setCurrentResult] = useState<Order | null>(null);
 
@@ -50,6 +51,14 @@ export function useAgent() {
     setCurrentResult(null);
   }, []);
 
+  const configureQwen = useCallback((config: { apiKey: string; endpoint?: string; model?: string }) => {
+    agentEngine.configureQwen(config);
+  }, []);
+
+  const checkQwenHealth = useCallback(async (): Promise<QwenConnectionStatus> => {
+    return agentEngine.checkQwenHealth();
+  }, []);
+
   return {
     state,
     isProcessing,
@@ -58,5 +67,7 @@ export function useAgent() {
     approveOrder,
     rejectOrder,
     clearHistory,
+    configureQwen,
+    checkQwenHealth,
   };
 }
