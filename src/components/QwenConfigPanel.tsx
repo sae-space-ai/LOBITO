@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QwenConnectionStatus } from '../core/qwenAdapter';
-import { Settings, CheckCircle2, XCircle, AlertCircle, Loader2, Key, Globe, Cpu } from 'lucide-react';
+import { Cpu, CheckCircle2, XCircle, AlertCircle, Loader2, Server, Shield } from 'lucide-react';
 
 interface QwenConfigPanelProps {
   status: QwenConnectionStatus;
@@ -8,19 +8,8 @@ interface QwenConfigPanelProps {
   onHealthCheck: () => Promise<QwenConnectionStatus>;
 }
 
-export function QwenConfigPanel({ status, onConfigure, onHealthCheck }: QwenConfigPanelProps) {
-  const [apiKey, setApiKey] = useState('');
-  const [endpoint, setEndpoint] = useState('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions');
-  const [model, setModel] = useState('qwen-turbo');
+export function QwenConfigPanel({ status, onHealthCheck }: QwenConfigPanelProps) {
   const [isChecking, setIsChecking] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-
-  const handleSave = () => {
-    if (!apiKey.trim()) return;
-    onConfigure({ apiKey: apiKey.trim(), endpoint, model });
-    setShowForm(false);
-    setApiKey('');
-  };
 
   const handleHealthCheck = async () => {
     setIsChecking(true);
@@ -35,13 +24,9 @@ export function QwenConfigPanel({ status, onConfigure, onHealthCheck }: QwenConf
           <Cpu className="w-4 h-4 text-purple-600" />
           Motor Qwen (IA)
         </h3>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
-        >
-          <Settings className="w-3 h-3" />
-          Configurar
-        </button>
+        <span className="text-[9px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full">
+          v3 Seguro
+        </span>
       </div>
 
       {/* Status indicator */}
@@ -57,16 +42,16 @@ export function QwenConfigPanel({ status, onConfigure, onHealthCheck }: QwenConf
           status.connected ? 'text-green-700' : 
           status.configured ? 'text-yellow-700' : 'text-red-600'
         }`}>
-          {status.connected ? 'Conectado' : 
+          {status.connected ? 'Conectado vía backend' : 
            status.configured ? 'Configurado - Verificar conexión' : 
-           'Sin configurar'}
+           'Sin configurar en el servidor'}
         </span>
       </div>
 
       {/* Details */}
       <div className="space-y-1 text-[10px] text-gray-500">
         <p><span className="font-medium">Modelo:</span> {status.model || 'No definido'}</p>
-        <p><span className="font-medium">Endpoint:</span> {status.endpoint ? new URL(status.endpoint).hostname : 'No definido'}</p>
+        <p><span className="font-medium">Endpoint:</span> {status.endpoint || 'No definido'}</p>
         {status.lastCheck && (
           <p><span className="font-medium">Última verificación:</span> {new Date(status.lastCheck).toLocaleTimeString()}</p>
         )}
@@ -78,79 +63,32 @@ export function QwenConfigPanel({ status, onConfigure, onHealthCheck }: QwenConf
       </div>
 
       {/* Health check button */}
-      {status.configured && (
-        <button
-          onClick={handleHealthCheck}
-          disabled={isChecking}
-          className="mt-3 w-full px-3 py-1.5 text-xs bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50 flex items-center justify-center gap-1"
-        >
-          {isChecking ? (
-            <><Loader2 className="w-3 h-3 animate-spin" /> Verificando...</>
-          ) : (
-            <>Verificar conexión</>
-          )}
-        </button>
-      )}
+      <button
+        onClick={handleHealthCheck}
+        disabled={isChecking}
+        className="mt-3 w-full px-3 py-1.5 text-xs bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50 flex items-center justify-center gap-1"
+      >
+        {isChecking ? (
+          <><Loader2 className="w-3 h-3 animate-spin" /> Verificando...</>
+        ) : (
+          <>Verificar conexión</>
+        )}
+      </button>
 
-      {/* Configuration form */}
-      {showForm && (
-        <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-          <div>
-            <label className="text-[10px] font-medium text-gray-600 flex items-center gap-1">
-              <Key className="w-3 h-3" /> API Key
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-              className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
-            />
+      {/* Security notice */}
+      <div className="mt-3 pt-3 border-t border-gray-100">
+        <div className="flex items-start gap-2">
+          <Shield className="w-3.5 h-3.5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div className="text-[10px] text-gray-600 space-y-1">
+            <p className="font-medium text-green-700">Seguridad activa</p>
+            <p>Las credenciales de Qwen están <strong>exclusivamente en el servidor</strong> (variable QWEN_API_KEY). Nunca se exponen al navegador.</p>
+            <p className="flex items-center gap-1 text-gray-500">
+              <Server className="w-3 h-3" />
+              Configure en el servidor: <code className="bg-gray-100 px-1 rounded">QWEN_API_KEY</code>
+            </p>
           </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-600 flex items-center gap-1">
-              <Globe className="w-3 h-3" /> Endpoint
-            </label>
-            <input
-              type="url"
-              value={endpoint}
-              onChange={(e) => setEndpoint(e.target.value)}
-              className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-medium text-gray-600">Modelo</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full mt-1 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
-            >
-              <option value="qwen-turbo">Qwen Turbo</option>
-              <option value="qwen-plus">Qwen Plus</option>
-              <option value="qwen-max">Qwen Max</option>
-              <option value="qwen2.5-72b-instruct">Qwen 2.5 72B</option>
-            </select>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={!apiKey.trim()}
-              className="flex-1 px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50"
-            >
-              Guardar
-            </button>
-            <button
-              onClick={() => setShowForm(false)}
-              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded-lg"
-            >
-              Cancelar
-            </button>
-          </div>
-          <p className="text-[9px] text-gray-400">
-            Las credenciales se almacenan localmente. Para producción, configure VITE_QWEN_API_KEY en el servidor.
-          </p>
         </div>
-      )}
+      </div>
     </div>
   );
 }

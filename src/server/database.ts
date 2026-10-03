@@ -1,157 +1,96 @@
 // ============================================================
-// SERVICIO DE BASE DE DATOS POSTGRESQL
-// Capa de acceso a datos con pool de conexiones
-// Compatible con pg (node-postgres) para despliegue en Vercel
+// SERVICIO DE BASE DE DATOS - Frontend
+// El frontend NUNCA tiene credenciales de BD.
+// Todas las operaciones pasan por el backend (/api/*).
+// localStorage solo para preferencias de UI y estados temporales.
 // ============================================================
 
 import { v4 as uuidv4 } from 'uuid';
 import { Order, OperationLog, MemoryEntry } from '../types';
 
-export interface DatabaseConfig {
-  host: string;
-  port: number;
-  database: string;
-  user: string;
-  password: string;
-  ssl: boolean;
-  maxConnections: number;
+const API_BASE = '/api';
+
+// Detectar si el backend está disponible
+let backendAvailable: boolean | null = null;
+
+export async function checkBackendAvailability(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE}/health`, { method: 'GET' });
+    backendAvailable = response.ok;
+    return backendAvailable;
+  } catch {
+    backendAvailable = false;
+    return false;
+  }
 }
 
-export interface QueryResult<T = unknown> {
-  rows: T[];
-  rowCount: number;
-  command: string;
-}
-
-// Configuración desde variables de entorno
-export function getDatabaseConfig(): DatabaseConfig | null {
-  const env = typeof import.meta !== 'undefined' ? (import.meta as any).env : {};
-  
-  const host = env?.VITE_DATABASE_HOST || env?.DATABASE_HOST;
-  if (!host) return null;
-
-  return {
-    host: host || 'localhost',
-    port: parseInt(env?.VITE_DATABASE_PORT || env?.DATABASE_PORT || '5432'),
-    database: env?.VITE_DATABASE_NAME || env?.DATABASE_NAME || 'agent_ia',
-    user: env?.VITE_DATABASE_USER || env?.DATABASE_USER || 'postgres',
-    password: env?.VITE_DATABASE_PASSWORD || env?.DATABASE_PASSWORD || '',
-    ssl: (env?.VITE_DATABASE_SSL || env?.DATABASE_SSL) === 'true',
-    maxConnections: parseInt(env?.VITE_DATABASE_MAX_CONN || env?.DATABASE_MAX_CONN || '10'),
-  };
-}
-
-export function isDatabaseConfigured(): boolean {
-  return getDatabaseConfig() !== null;
+export function isBackendAvailable(): boolean {
+  return backendAvailable === true;
 }
 
 // ============================================================
 // REPOSITORIO DE ÓRDENES
 // ============================================================
 export class OrderRepository {
-  private useRemote: boolean;
+  private readonly LOCAL_KEY = 'agent_orders_local';
 
-  constructor() {
-    this.useRemote = isDatabaseConfigured();
-  }
-
-  async create(order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'> & { userId?: string }): Promise<Order> {
-    if (this.useRemote) {
-      return this.createRemote(order);
+  async create(order: Partial<Order>): Promise<Order> {
+    // Intentar backend primero
+    if (backendAvailable) {
+      try {
+        const response = await fetch(`${API_BASE}/commands`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: order.rawInput }),
+        });
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            return result.data as Order;
+          }
+        }
+      } catch { /* fallback a local */ }
     }
     return this.createLocal(order);
   }
 
   async findById(id: string): Promise<Order | null> {
-    if (this.useRemote) {
-      return this.findByIdRemote(id);
+    if (backendAvailable) {
+      try {
+        const response = await fetch(`${API_BASE}/commands/${id}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) return result.data as Order;
+        }
+      } catch { /* fallback */ }
     }
     return this.findByIdLocal(id);
   }
 
-  async findByUser(userId: string, limit = 50): Promise<Order[]> {
-    if (this.useRemote) {
-      return this.findByUserRemote(userId, limit);
-    }
-    return this.findByUserLocal(userId, limit);
-  }
-
-  async updateStatus(id: string, status: Order['status'], data?: Partial<Order>): Promise<Order | null> {
-    if (this.useRemote) {
-      return this.updateStatusRemote(id, status, data);
-    }
-    return this.updateStatusLocal(id, status, data);
-  }
-
   async findAll(limit = 100): Promise<Order[]> {
-    if (this.useRemote) {
-      return this.findAllRemote(limit);
+    if (backendAvailable) {
+      try {
+        const response = await fetch(`${API_BASE}/commands?limit=${limit}`);
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success) return result.data as Order[];
+        }
+      } catch { /* fallback */ }
     }
     return this.findAllLocal(limit);
   }
 
-  // === Implementación remota (PostgreSQL vía API) ===
-  private async createRemote(order: unknown): Promise<Order> {
-    const response = await fetch('/api/commands', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(order),
-    });
-    if (!response.ok) throw new Error(`Error creating order: ${response.status}`);
-    return response.json();
-  }
-
-  private async findByIdRemote(id: string): Promise<Order | null> {
-    const response = await fetch(`/api/commands/${id}`);
-    if (!response.ok) return null;
-    return response.json();
-  }
-
-  private async findByUserRemote(userId: string, limit: number): Promise<Order[]> {
-    const response = await fetch(`/api/commands?userId=${userId}&limit=${limit}`);
-    if (!response.ok) return [];
-    return response.json();
-  }
-
-  private async updateStatusRemote(id: string, status: string, data?: Partial<Order>): Promise<Order | null> {
-    const response = await fetch(`/api/commands/${id}/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, ...data }),
-    });
-    if (!response.ok) return null;
-    return response.json();
-  }
-
-  private async findAllRemote(limit: number): Promise<Order[]> {
-    const response = await fetch(`/api/commands?limit=${limit}`);
-    if (!response.ok) return [];
-    return response.json();
-  }
-
-  // === Implementación local (localStorage fallback) ===
-  private readonly STORAGE_KEY = 'agent_orders_db';
-
-  private getLocalOrders(): Order[] {
-    try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '[]');
-    } catch {
-      return [];
-    }
-  }
-
-  private saveLocalOrders(orders: Order[]): void {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(orders.slice(-500)));
-  }
-
-  private createLocal(order: unknown): Order {
+  // === Local (fallback) ===
+  private createLocal(order: Partial<Order>): Order {
     const orders = this.getLocalOrders();
     const now = new Date().toISOString();
     const newOrder: Order = {
-      ...(order as Partial<Order>),
-      id: (order as Order).id || uuidv4(),
+      id: order.id || uuidv4(),
+      rawInput: order.rawInput || '',
+      status: order.status || 'pending',
       createdAt: now,
       updatedAt: now,
+      ...order,
     } as Order;
     orders.unshift(newOrder);
     this.saveLocalOrders(orders);
@@ -162,21 +101,20 @@ export class OrderRepository {
     return this.getLocalOrders().find(o => o.id === id) || null;
   }
 
-  private findByUserLocal(_userId: string, limit: number): Order[] {
-    return this.getLocalOrders().slice(0, limit);
-  }
-
-  private updateStatusLocal(id: string, status: Order['status'], data?: Partial<Order>): Order | null {
-    const orders = this.getLocalOrders();
-    const index = orders.findIndex(o => o.id === id);
-    if (index === -1) return null;
-    orders[index] = { ...orders[index], ...data, status, updatedAt: new Date().toISOString() };
-    this.saveLocalOrders(orders);
-    return orders[index];
-  }
-
   private findAllLocal(limit: number): Order[] {
     return this.getLocalOrders().slice(0, limit);
+  }
+
+  private getLocalOrders(): Order[] {
+    try {
+      return JSON.parse(localStorage.getItem(this.LOCAL_KEY) || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  private saveLocalOrders(orders: Order[]): void {
+    localStorage.setItem(this.LOCAL_KEY, JSON.stringify(orders.slice(-500)));
   }
 }
 
@@ -184,14 +122,11 @@ export class OrderRepository {
 // REPOSITORIO DE LOGS
 // ============================================================
 export class LogRepository {
-  private readonly STORAGE_KEY = 'agent_logs_db';
+  private readonly LOCAL_KEY = 'agent_logs_local';
 
   async create(log: Omit<OperationLog, 'id'>): Promise<OperationLog> {
     const logs = this.getLocalLogs();
-    const newLog: OperationLog = {
-      ...log,
-      id: uuidv4(),
-    };
+    const newLog: OperationLog = { ...log, id: uuidv4() };
     logs.push(newLog);
     this.saveLocalLogs(logs);
     return newLog;
@@ -207,22 +142,22 @@ export class LogRepository {
 
   private getLocalLogs(): OperationLog[] {
     try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '[]');
+      return JSON.parse(localStorage.getItem(this.LOCAL_KEY) || '[]');
     } catch {
       return [];
     }
   }
 
   private saveLocalLogs(logs: OperationLog[]): void {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(logs.slice(-1000)));
+    localStorage.setItem(this.LOCAL_KEY, JSON.stringify(logs.slice(-1000)));
   }
 }
 
 // ============================================================
-// REPOSITORIO DE MEMORIA
+// REPOSITORIO DE MEMORIA (solo preferencias UI y datos temporales)
 // ============================================================
 export class MemoryRepository {
-  private readonly STORAGE_KEY = 'agent_memory_db';
+  private readonly LOCAL_KEY = 'agent_memory_local';
 
   async store(key: string, value: unknown, tags: string[] = []): Promise<MemoryEntry> {
     const entries = this.getLocalEntries();
@@ -264,14 +199,14 @@ export class MemoryRepository {
 
   private getLocalEntries(): MemoryEntry[] {
     try {
-      return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '[]');
+      return JSON.parse(localStorage.getItem(this.LOCAL_KEY) || '[]');
     } catch {
       return [];
     }
   }
 
   private saveLocalEntries(entries: MemoryEntry[]): void {
-    localStorage.setItem(this.STORAGE_KEY, JSON.stringify(entries.slice(-200)));
+    localStorage.setItem(this.LOCAL_KEY, JSON.stringify(entries.slice(-200)));
   }
 }
 

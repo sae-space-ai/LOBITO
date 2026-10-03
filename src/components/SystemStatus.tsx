@@ -1,13 +1,13 @@
 import { AgentEngineState } from '../core/engine';
 import { Database, Server, Wrench, Shield, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
-import { isDatabaseConfigured } from '../server/database';
+import { isBackendAvailable } from '../server/database';
 
 interface SystemStatusProps {
   state: AgentEngineState;
 }
 
 export function SystemStatus({ state }: SystemStatusProps) {
-  const dbConfigured = isDatabaseConfigured();
+  const dbConfigured = isBackendAvailable();
   const qwenStatus = state.qwenStatus;
   const toolsAvailable = state.tools.filter(t => t.status === 'available').length;
   const totalTools = state.tools.length;
